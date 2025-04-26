@@ -154,7 +154,7 @@ Contributions are welcome! Please feel free to submit a Pull Request.
 This project is licensed under the MIT License - see the [LICENSE.md](LICENSE.md) file for details.
 
 ## Author
-Santiago Iino Cotado - [Your Upwork Profile]
+Santiago Iino Cotado - 
 
 ## Acknowledgments
 - n8n team for the amazing workflow automation platform
