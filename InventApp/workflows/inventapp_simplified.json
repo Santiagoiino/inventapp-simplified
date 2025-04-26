@@ -1,0 +1,431 @@
+{
+  "name": "InventApp",
+  "nodes": [
+    {
+      "parameters": {
+        "updates": ["message"]
+      },
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1.1,
+      "position": [-20, 840],
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "YOUR_TELEGRAM_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fields": {
+          "values": [
+            {
+              "name": "text",
+              "stringValue": "={{ $json?.message?.text || \"\" }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.set",
+      "position": [200, 840],
+      "id": "voice-or-text",
+      "name": "Voice or Text"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "voice-check",
+              "operator": {
+                "type": "string",
+                "operation": "empty",
+                "singleValue": true
+              },
+              "leftValue": "={{ $json.message.text }}",
+              "rightValue": ""
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "position": [420, 840],
+      "id": "voice-check",
+      "name": "Voice Check"
+    },
+    {
+      "parameters": {
+        "resource": "file",
+        "fileId": "={{ $('Telegram Trigger').item.json.message.voice.file_id }}"
+      },
+      "type": "n8n-nodes-base.telegram",
+      "position": [640, 760],
+      "id": "get-voice-file",
+      "name": "Get Voice File",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "YOUR_TELEGRAM_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "audio",
+        "operation": "transcribe"
+      },
+      "type": "@n8n/n8n-nodes-langchain.openAi",
+      "position": [860, 760],
+      "id": "speech-to-text",
+      "name": "Speech to Text",
+      "credentials": {
+        "openAiApi": {
+          "id": "YOUR_OPENAI_CREDENTIAL_ID",
+          "name": "YOUR_OPENAI_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.merge",
+      "position": [1080, 840],
+      "id": "merge",
+      "name": "Merge"
+    },
+    {
+      "parameters": {
+        "promptType": "define",
+        "text": "={{ $json.text }}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "=### Instructions:\n\nYou are an assistant for my food inventory. You must determine if the message refers to adding, removing, modifying a record (an inventory product) or if the user wants to see the list of products stored in the database.\n\n\nThe current date is: {{ $now }}\n\n### DEFINITIONS AND CLASSIFICATION CRITERIA\n\n1. **Add Product**  \n   - The user wants to add a new product to the inventory with its quantity, unit and expiration date (if applicable).\n\n2. **Remove Product**  \n   - The user wants to remove a product from the inventory.\n\n3. **Modify Product**  \n   - The user wants to modify an existing product in the inventory, such as changing its quantity, unit or expiration date.\n\n4. **View Inventory**  \n   - The user wants to see the current inventory and the quantity of available products.\n\n5. If the product is in plural, convert it to singular.\n\n### EXAMPLE MESSAGES\n\n• \"List products\" --> View Inventory\n• \"Product list\" --> View Inventory\n• \"inventory\" --> View Inventory\n• \"View\"--> View Inventory\n\n### RESPONSE FORMAT (STRICTLY MANDATORY)\n\nYou must respond **only** with a valid JSON object, without adding additional text, explanations, notes or comments before or after the JSON.  \n\nThe response format must be as follows:\n\n```json\n{\n  \"action\": \"add/remove/modify/view\", \n  \"name\": \"product name\", \n  \"quantity\": number,  \n  \"unit\": \"unit\",  \n  \"expiration_date\": \"2025-04-01\"\n}\n```"
+        }
+      },
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "position": [1300, 840],
+      "id": "product-identifier",
+      "name": "Product Identifier"
+    },
+    {
+      "parameters": {
+        "jsCode": "const output = $json[\"output\"];\n\n// Clean triple quotes and transform JSON string into JSON object\nconst jsonString = output.replace(\"```json\", \"\").replace(\"```\", \"\");\nconst parsedResponse = JSON.parse(jsonString);\n\n// Transform that JSON object to the structure you need\nconst transformedResponse = {\n  action: parsedResponse.action,\n  name: parsedResponse.name,\n  quantity: parsedResponse.quantity || null,\n  unit: parsedResponse.unit || null,\n  expiration_date: parsedResponse.expiration_date || null\n};\n\nreturn [{json: transformedResponse}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "position": [1680, 840],
+      "id": "code",
+      "name": "Code"
+    },
+    {
+      "parameters": {
+        "mode": "expression",
+        "output": "={{\n  $json[\"action\"].trim() === \"add\"\n    ? 0\n    : $json[\"action\"].trim() === \"remove\"\n      ? 1\n      : $json[\"action\"].trim() === \"modify\"\n        ? 2\n        : 3\n}}\n"
+      },
+      "type": "n8n-nodes-base.switch",
+      "position": [1900, 800],
+      "id": "switch",
+      "name": "Switch"
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "tableId": "products",
+        "fieldsUi": {
+          "fieldValues": [
+            {
+              "fieldId": "name",
+              "fieldValue": "={{ $json.name }}"
+            },
+            {
+              "fieldId": "quantity",
+              "fieldValue": "={{ $json.quantity }}"
+            },
+            {
+              "fieldId": "unit",
+              "fieldValue": "={{ $json.unit }}"
+            },
+            {
+              "fieldId": "expiration_date",
+              "fieldValue": "={{ $json.expiration_date }}"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.supabase",
+      "position": [2180, 380],
+      "id": "insert-product",
+      "name": "Insert Product",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "YOUR_SUPABASE_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=✅ Product added: {{$json[\"name\"]}}, {{$json[\"quantity\"]}} {{$json[\"unit\"]}} (Expires: {{$json[\"expiration_date\"] || 'No date'}})",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "position": [2480, 380],
+      "id": "add-response",
+      "name": "Add Response",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "YOUR_TELEGRAM_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "triggerAtHour": 10
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "position": [-20, 120],
+      "id": "schedule-trigger",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "operation": "getAll",
+        "tableId": "products",
+        "returnAll": true
+      },
+      "type": "n8n-nodes-base.supabase",
+      "position": [200, 120],
+      "id": "get-products",
+      "name": "Get Products",
+      "credentials": {
+        "supabaseApi": {
+          "id": "YOUR_SUPABASE_CREDENTIAL_ID",
+          "name": "YOUR_SUPABASE_CREDENTIAL_NAME"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "jsCode": "return items\n  .map(item => {\n    const product = item.json;\n    const expDate = new Date(product.expiration_date);\n    const today = new Date();\n    \n    // Difference in milliseconds\n    const diffMs = expDate - today;\n\n    // Convert to days (rounding up)\n    const daysLeft = Math.ceil(diffMs / (1000 * 60 * 60 * 24));\n\n    // Add 'days_left' to product\n    product.days_left = daysLeft;\n\n    return { json: product };\n  })\n  .filter(item => {\n    // Keep only products whose days_left is 0..5\n    return item.json.days_left >= 0 && item.json.days_left <= 5;\n  });"
+      },
+      "type": "n8n-nodes-base.code",
+      "position": [420, 120],
+      "id": "expiration-check",
+      "name": "Expiration Check"
+    },
+    {
+      "parameters": {
+        "chatId": "YOUR_TELEGRAM_CHAT_ID",
+        "text": "=🟥 Products about to expire:\nName: {{ $json.data[0].name }} - Quantity: {{ $json.data[0].quantity }} {{ $json.data[0].unit }} - Expires: {{ $json.data[0].expiration_date }}\n",
+        "additionalFields": {
+          "appendAttribution": false
+        }
+      },
+      "type": "n8n-nodes-base.telegram",
+      "position": [860, 120],
+      "id": "expiration-notification",
+      "name": "Expiration Notification",
+      "credentials": {
+        "telegramApi": {
+          "id": "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "YOUR_TELEGRAM_CREDENTIAL_NAME"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Telegram Trigger": {
+      "main": [
+        [
+          {
+            "node": "Voice or Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voice or Text": {
+      "main": [
+        [
+          {
+            "node": "Voice Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Voice Check": {
+      "main": [
+        [
+          {
+            "node": "Get Voice File",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 1
+          }
+        ]
+      ]
+    },
+    "Get Voice File": {
+      "main": [
+        [
+          {
+            "node": "Speech to Text",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Speech to Text": {
+      "main": [
+        [
+          {
+            "node": "Merge",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Merge": {
+      "main": [
+        [
+          {
+            "node": "Product Identifier",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Product Identifier": {
+      "main": [
+        [
+          {
+            "node": "Code",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Code": {
+      "main": [
+        [
+          {
+            "node": "Switch",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Switch": {
+      "main": [
+        [
+          {
+            "node": "Insert Product",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Remove Product",
+            "type": "main",
+            "index": 1
+          }
+        ],
+        [
+          {
+            "node": "Modify Product",
+            "type": "main",
+            "index": 2
+          }
+        ],
+        [
+          {
+            "node": "View Inventory",
+            "type": "main",
+            "index": 3
+          }
+        ]
+      ]
+    },
+    "Insert Product": {
+      "main": [
+        [
+          {
+            "node": "Add Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Get Products",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Products": {
+      "main": [
+        [
+          {
+            "node": "Expiration Check",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Expiration Check": {
+      "main": [
+        [
+          {
+            "node": "Expiration Notification",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "timezone": "America/Argentina/Buenos_Aires"
+  }
+}
